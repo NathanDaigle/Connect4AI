@@ -1,7 +1,23 @@
 import pygame
+import json
+from pathlib import Path
 
-rows = 6
-columns = 7
+
+from connect4.logic.logic import (
+    ROWS,
+    COLUMNS,
+    EMPTY,
+    PLAYER1,
+    PLAYER2,
+    empty_board,
+    valid_move,
+    place_piece,
+    game_status,
+)
+rows = ROWS
+columns = COLUMNS
+score_file = Path(__file__).resolve().parents[1] / "scores.json"
+
 cell_size = 90
 cell_radius = 30
 top_margin = 150
@@ -35,8 +51,18 @@ def run() -> None:
 
     board = empty_board()
     game_started = False
-    current_player = 1
-    start_button_rect = pygame.Rect((width - button_width) // 2, top_margin + board_height + button_gap, button_width, button_height)
+    current_player = PLAYER1
+    result_msg = ""
+    scores = load_scores()
+    player1_score = scores["player1_score"]
+    player2_score = scores["player2_score"]
+    draw_score = scores["draw_score"]
+    start_button_rect = pygame.Rect(
+        (width - button_width) // 2,
+        top_margin + board_height + button_gap,
+        button_width,
+        button_height
+    )
 
     running = True
     while running:
@@ -50,24 +76,45 @@ def run() -> None:
                     if not game_started:
                         board = empty_board()
                         game_started = True
-                        current_player = 1
+                        current_player = PLAYER1
+                        result_msg = ""
                     else:
                         board = empty_board()
                         game_started = False
-                       # player_forfeit()
+                        player2_score += 1
+                        save_scores(player2_score, player1_score, draw_score)
+                        result_msg = "Player Forfeited AI Wins!"
+
                 elif game_started and click_on_board(mouse_x, mouse_y):
                     column = get_column(mouse_x)
-                    if column is not None:
-                        row = get_open_row(board, column)
-                        if row is not None:
-                            board[row][column] = current_player
-                            current_player = 2 if current_player == 1 else 1
-                            #ADD AI COLUMN UPDATE HERE
+                    if column is not None and valid_move(board, column):
+                        place_piece(board, column, current_player)
+                        status = game_status(board)
+
+                        if status == "player1_win":
+                            player1_score += 1
+                            save_scores(player1_score, player2_score, draw_score)
+                            result_msg = "Humans Win!"
+                            game_started = False
+                        elif status == "player2_win":
+                            player2_score += 1
+                            save_scores(player1_score, player2_score, draw_score)
+                            result_msg = "AI Wins!"
+                            game_started = False
+                        elif status == "draw":
+                            draw_score += 1
+                            save_scores(player1_score, player2_score, draw_score)
+                            result_msg = "Draw!"
+                            game_started = False
+                        else :
+                            current_player = PLAYER2 if current_player == PLAYER1 else PLAYER1
+                            # ADD AI MOVE HERE LATER
 
         screen.fill(background)
-        draw_turn_text(screen, font, game_started, current_player)
+        draw_turn_text(screen, font, game_started, current_player, result_msg)
         draw_board(screen, board)
         draw_start_button(screen, font, start_button_rect, game_started)
+        draw_scoreboard(screen, font, player1_score, player2_score, draw_score)
         pygame.display.flip()
 
     pygame.quit()
@@ -89,9 +136,9 @@ def draw_board(screen, board):
             y = board_y + board_padding + row * cell_size + cell_size // 2
             value = board[row][column]
 
-            if value == 0:
+            if value == EMPTY:
                 color = empty_slot
-            elif value == 1:
+            elif value == PLAYER1:
                 color = player1_slot
             else:
                 color = player2_slot
@@ -107,20 +154,29 @@ def draw_start_button(screen, font, button_rect, game_started):
     button_color = hover_color if hovered else base_color
 
     pygame.draw.rect(screen, button_color, button_rect, border_radius=15)
-    label = "Start Game" if not game_started else "End Game"
+    label = "Start Game" if not game_started else "Forfeit Game"
     label_surface = font.render(label, True, text)
 
     label_x = button_rect.centerx - label_surface.get_width() // 2
     label_y = button_rect.centery - label_surface.get_height() // 2
     screen.blit(label_surface, (label_x, label_y))
 
-def draw_turn_text(screen, font, game_started, current_player):
-    if not game_started:
-        label = "Press Start Game!"
-        color = subtext
-    else:
-        label = f"Player {current_player}'s turn!"
-        color = player1_slot if current_player == 1 else player2_slot
+def draw_turn_text(screen, font, game_started, current_player, result_msg):
+    if game_started:
+        label = "Human's turn!" if current_player == PLAYER1 else "AI's turn!"
+        color = player1_slot if current_player == PLAYER1 else player2_slot
+    else :
+        if result_msg:
+            label = result_msg
+            if result_msg == "Humans Win!":
+                color = player1_slot
+            elif result_msg == "AI Wins!":
+                color = player2_slot
+            else :
+                color = subtext
+        else :
+            label = "Press Start Game!"
+            color = subtext
 
     label_surface = font.render(label, True, color)
     x = (width - label_surface.get_width()) // 2
@@ -131,11 +187,11 @@ def click_on_board(mouse_x, mouse_y):
     board_x = (width - board_width) // 2
     board_y = top_margin
 
-    return {
+    return (
         board_x <= mouse_x < board_x + board_width
         and
         board_y <= mouse_y < board_y + board_height
-    }
+    )
 
 def get_column(mouse_x):
     board_x = (width - board_width) // 2
@@ -150,19 +206,28 @@ def get_column(mouse_x):
         return int(column)
     return None
 
-def get_open_row(board, column):
-    for row in range(rows - 1, -1, -1):
-        if board[row][column] == 0:
-            return row
-    return None
+def draw_scoreboard(screen, font, player1_score, player2_score, draw_score):
+    label = f"Humans: {player1_score} | AI: {player2_score} | Draws: {draw_score}"
+    label_surface = font.render(label, True, text)
+    x = (width - label_surface.get_width()) // 2
+    y = 100
+    screen.blit(label_surface, (x, y))
 
-def empty_board():
-    board = [
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-    ]
-    return board
+def load_scores():
+    if not score_file.exists():
+        return {
+            "player1_score": 0,
+            "player2_score": 0,
+            "draw_score": 0,
+        }
+    with(open(score_file, "r") as file):
+        return json.load(file)
+
+def save_scores(player1_score, player2_score, draw_score):
+    scores = {
+        "player1_score": player1_score,
+        "player2_score": player2_score,
+        "draw_score": draw_score,
+    }
+    with(open(score_file, "w")) as file:
+        json.dump(scores, file)
