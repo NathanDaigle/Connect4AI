@@ -218,7 +218,3 @@ __marimo__/
 # Python cache
 __pycache__/
 *.py[cod]
-
-# Local ML artifacts
-data/
-*.joblib
